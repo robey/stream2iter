@@ -2,7 +2,10 @@ import * as stream from "stream";
 
 const EMPTY = Buffer.alloc(0);
 
-class StreamIterator implements AsyncIterator<Buffer> {
+// in case the js doesn't have an async iterator yet.
+(Symbol as any).asyncIterator = Symbol.asyncIterator || Symbol.for("Symbol.asyncIterator");
+
+export class StreamAsyncIterator implements AsyncIterator<Buffer> {
   ready = false;
   eof = false;
   error?: Error;
@@ -24,6 +27,10 @@ class StreamIterator implements AsyncIterator<Buffer> {
       this.eof = true;
       this.wakeup();
     })
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<Buffer> {
+    return this;
   }
 
   next(): Promise<IteratorResult<Buffer>> {
@@ -62,4 +69,8 @@ class StreamIterator implements AsyncIterator<Buffer> {
     if (!reject) throw new Error("invalid state");
     reject(error);
   }
+}
+
+export function asyncIteratorFor(stream: stream.Readable): StreamAsyncIterator {
+  return new StreamAsyncIterator(stream);
 }
