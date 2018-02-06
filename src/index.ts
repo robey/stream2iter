@@ -10,10 +10,12 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
   eof = false;
   error?: Error;
 
+  // the spec says we have to allow a bunch of sequential `next()` calls
+  // before any of them resolve, and we have to respond to them in order.
   resolve: Array<(value: IteratorResult<Buffer>) => void> = [];
   reject: Array<(error: Error) => void> = [];
 
-  constructor(public stream: stream.Readable) {
+  constructor(public stream: stream.Readable, public size?: number) {
     stream.pause();
     stream.on("readable", () => {
       this.ready = true;
@@ -42,42 +44,37 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
   }
 
   wakeup() {
-    if (this.resolve.length == 0 || this.reject.length == 0) return;
-
-    if (this.error) {
-      this.callReject(this.error);
-      this.wakeup();
+    while (this.resolve.length > 0) {
+      if (this.error) {
+        this.callReject(this.error);
+      } else if (this.eof) {
+        this.callResolve({ done: true, value: EMPTY });
+      } else {
+        const buffer = this.stream.read(this.size) as Buffer;
+        if (buffer == null) {
+          this.ready = false;
+          return;
+        }
+        this.callResolve({ done: false, value: buffer });
+      }
     }
-    if (this.eof) {
-      this.callResolve({ done: true, value: EMPTY });
-      this.wakeup();
-    }
-
-    const buffer = this.stream.read() as Buffer;
-    if (buffer == null) {
-      this.ready = false;
-      return;
-    }
-    this.callResolve({ done: false, value: buffer });
-    this.wakeup();
   }
 
   callResolve(value: IteratorResult<Buffer>) {
     const resolve = this.resolve.shift();
     this.reject.shift();
-    this.ready = false;
     if (!resolve) throw new Error("invalid state");
     resolve(value);
   }
 
   callReject(error: Error) {
     const reject = this.reject.shift();
-    this.reject.shift();
+    this.resolve.shift();
     if (!reject) throw new Error("invalid state");
     reject(error);
   }
 }
 
-export function asyncIteratorFor(stream: stream.Readable): StreamAsyncIterator {
-  return new StreamAsyncIterator(stream);
+export function asyncIteratorFor(stream: stream.Readable, size?: number): StreamAsyncIterator {
+  return new StreamAsyncIterator(stream, size);
 }
