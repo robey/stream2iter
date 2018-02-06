@@ -40,6 +40,34 @@ describe("StreamAsyncIterator", () => {
 
     const iter = asyncIteratorFor(fake);
     const rv = await Promise.all([ iter.next(), iter.next(), iter.next(), iter.next() ]);
-    rv.map(item => item == null ? "" : item.toString()).should.eql([ "hello", " sail", "or" ]);
+    rv.map(item => item.done ? "" : item.value.toString()).join("").should.eql("hello sailor");
+  });
+
+  it("catches errors", async () => {
+    const fake = new stream.Readable({
+      read(size) {
+        process.nextTick(() => this.emit('error', new Error("I am broken")));
+      }
+    });
+
+    let caught: Error | undefined;
+    const iter = asyncIteratorFor(fake);
+    try {
+      for await (const b of iter) {
+        // shouldn't get here. :(
+        console.log(b);
+        (3).should.eql(4);
+      }
+    } catch (error) {
+      caught = error;
+    }
+    (caught !== undefined).should.eql(true);
+
+    // the error should be persistent.
+    try {
+      (await iter.next()).should.eql(true);
+    } catch (error) {
+      error.message.should.match(/broken/);
+    }
   });
 });

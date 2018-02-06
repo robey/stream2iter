@@ -2,7 +2,7 @@ import * as stream from "stream";
 
 const EMPTY = Buffer.alloc(0);
 
-// in case the js doesn't have an async iterator yet.
+// in case the ES8 engine doesn't have an async iterator yet.
 (Symbol as any).asyncIterator = Symbol.asyncIterator || Symbol.for("Symbol.asyncIterator");
 
 export class StreamAsyncIterator implements AsyncIterator<Buffer> {
@@ -10,8 +10,8 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
   eof = false;
   error?: Error;
 
-  resolve?: (value: IteratorResult<Buffer>) => void;
-  reject?: (error: Error) => void;
+  resolve: Array<(value: IteratorResult<Buffer>) => void> = [];
+  reject: Array<(error: Error) => void> = [];
 
   constructor(public stream: stream.Readable) {
     stream.pause();
@@ -35,37 +35,44 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
 
   next(): Promise<IteratorResult<Buffer>> {
     return new Promise((resolve, reject) => {
-      this.resolve = resolve;
-      this.reject = reject;
-      if (this.ready) this.wakeup();
+      this.resolve.push(resolve);
+      this.reject.push(reject);
+      if (this.ready || this.eof || this.error) this.wakeup();
     });
   }
 
   wakeup() {
-    if (!this.resolve || !this.reject) return;
+    if (this.resolve.length == 0 || this.reject.length == 0) return;
 
-    if (this.error) return this.callReject(this.error);
-    if (this.eof) return this.callResolve({ done: true, value: EMPTY });
+    if (this.error) {
+      this.callReject(this.error);
+      this.wakeup();
+    }
+    if (this.eof) {
+      this.callResolve({ done: true, value: EMPTY });
+      this.wakeup();
+    }
 
     const buffer = this.stream.read() as Buffer;
-    if (buffer == null) return;
+    if (buffer == null) {
+      this.ready = false;
+      return;
+    }
     this.callResolve({ done: false, value: buffer });
+    this.wakeup();
   }
 
   callResolve(value: IteratorResult<Buffer>) {
-    const resolve = this.resolve;
-    delete this.resolve;
-    delete this.reject;
+    const resolve = this.resolve.shift();
+    this.reject.shift();
     this.ready = false;
     if (!resolve) throw new Error("invalid state");
     resolve(value);
   }
 
   callReject(error: Error) {
-    const reject = this.reject;
-    delete this.resolve;
-    delete this.reject;
-    this.ready = false;
+    const reject = this.reject.shift();
+    this.reject.shift();
     if (!reject) throw new Error("invalid state");
     reject(error);
   }
