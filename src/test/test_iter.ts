@@ -38,7 +38,7 @@ describe("StreamAsyncIterator", () => {
       }
     });
 
-    const iter = asyncIteratorFor(fake);
+    const iter = asyncIteratorFor(fake)[Symbol.asyncIterator]();
     const rv = await Promise.all([ iter.next(), iter.next(), iter.next(), iter.next() ]);
     rv.map(item => item.done ? "" : item.value.toString()).join("").should.eql("hello sailor");
   });
@@ -65,7 +65,7 @@ describe("StreamAsyncIterator", () => {
 
     // the error should be persistent.
     try {
-      (await iter.next()).should.eql(true);
+      (await iter[Symbol.asyncIterator]().next()).should.eql(true);
     } catch (error) {
       error.message.should.match(/broken/);
     }

@@ -31,9 +31,6 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
     })
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<Buffer> {
-    return this;
-  }
 
   next(): Promise<IteratorResult<Buffer>> {
     return new Promise((resolve, reject) => {
@@ -75,6 +72,28 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
   }
 }
 
-export function asyncIteratorFor(stream: stream.Readable, size?: number): StreamAsyncIterator {
-  return new StreamAsyncIterator(stream, size);
+export class StreamAsyncIterable implements AsyncIterable<Buffer> {
+  iter: AsyncIterator<Buffer>;
+
+  constructor(public stream: stream.Readable, public size?: number) {
+    // there can be only one.
+    this.iter = new StreamAsyncIterator(this.stream, this.size);
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<Buffer> {
+    return this.iter;
+  }
+}
+
+/*
+ * wrap a node.js `Readable` stream into an ES8 async iterator, of the kind
+ * that can be used in `for await` expressions. the iterator will place the
+ * stream into "pull" mode (paused) and emit `Buffer` objects until it
+ * reaches the end of the stream, or the stream emits an error.
+ *
+ * `size` is an optional parameter to pass to the stream's `read()` method,
+ * if you want to try to read chunks of a specific size.
+ */
+export function asyncIteratorFor(stream: stream.Readable, size?: number): StreamAsyncIterable {
+  return new StreamAsyncIterable(stream, size);
 }
