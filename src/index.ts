@@ -5,15 +5,18 @@ const EMPTY = Buffer.alloc(0);
 // in case the ES8 engine doesn't have an async iterator yet.
 (Symbol as any).asyncIterator = Symbol.asyncIterator || Symbol.for("Symbol.asyncIterator");
 
+type Resolver<A> = (value: IteratorResult<A>) => void;
+type Rejecter = (error: Error) => void;
+
 export class StreamAsyncIterator implements AsyncIterator<Buffer> {
-  ready = false;
-  eof = false;
-  error?: Error;
+  private ready = false;
+  private eof = false;
+  private error?: Error;
 
   // the spec says we have to allow a bunch of sequential `next()` calls
   // before any of them resolve, and we have to respond to them in order.
-  resolve: Array<(value: IteratorResult<Buffer>) => void> = [];
-  reject: Array<(error: Error) => void> = [];
+  private resolve: Array<Resolver<Buffer>> = [];
+  private reject: Array<Rejecter> = [];
 
   constructor(public stream: stream.Readable, public size?: number) {
     stream.pause();
@@ -31,7 +34,6 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
     })
   }
 
-
   next(): Promise<IteratorResult<Buffer>> {
     return new Promise((resolve, reject) => {
       this.resolve.push(resolve);
@@ -40,7 +42,7 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
     });
   }
 
-  wakeup() {
+  private wakeup() {
     while (this.resolve.length > 0) {
       if (this.error) {
         this.callReject(this.error);
@@ -57,14 +59,14 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
     }
   }
 
-  callResolve(value: IteratorResult<Buffer>) {
+  private callResolve(value: IteratorResult<Buffer>) {
     const resolve = this.resolve.shift();
     this.reject.shift();
     if (!resolve) throw new Error("invalid state");
     resolve(value);
   }
 
-  callReject(error: Error) {
+  private callReject(error: Error) {
     const reject = this.reject.shift();
     this.resolve.shift();
     if (!reject) throw new Error("invalid state");
@@ -73,7 +75,7 @@ export class StreamAsyncIterator implements AsyncIterator<Buffer> {
 }
 
 export class StreamAsyncIterable implements AsyncIterable<Buffer> {
-  iter: AsyncIterator<Buffer>;
+  private iter: AsyncIterator<Buffer>;
 
   constructor(public stream: stream.Readable, public size?: number) {
     // there can be only one.
